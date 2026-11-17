@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "697104366498",
+    "project_id": "fitnesstracker-514908",
+    "storage_bucket": "fitnesstracker-514908.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:697104366498:android:458df7187abb4912c710fb",
+        "android_client_info": {
+          "package_name": "com.inpand.jaihindrunnerclub"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzfZ58PGfgCbyZGZQbV8CsLtGQME3mA98"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
