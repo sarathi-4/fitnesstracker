@@ -782,6 +782,40 @@ class SocialService extends ChangeNotifier {
     return followers;
   }
 
+  /// Syncs live followers & following counts from Cloud Firestore so when another
+  /// person follows you on their phone, your profile immediately shows the new follower!
+  Future<void> syncFollowCountsFromCloud() async {
+    await _ensureLocalFollowsLoaded();
+    final initOk = await AuthService.instance.ensureInitialized();
+    if (!initOk) return;
+
+    try {
+      final followersSnap = await _firestore
+          .collection('follows')
+          .where('followedId', isEqualTo: currentUserId)
+          .get();
+      UserService.instance.syncFollowersCount(followersSnap.docs.length);
+
+      final followingSnap = await _firestore
+          .collection('follows')
+          .where('followerId', isEqualTo: currentUserId)
+          .get();
+      if (followingSnap.docs.isNotEmpty) {
+        for (final doc in followingSnap.docs) {
+          final fid = (doc.data()['followedId'] ?? '').toString();
+          if (fid.isNotEmpty) _followingUserIds.add(fid);
+        }
+        UserService.instance.syncFollowingCount(
+          _followingUserIds.length > followingSnap.docs.length
+              ? _followingUserIds.length
+              : followingSnap.docs.length,
+        );
+      }
+    } catch (e) {
+      debugPrint('[SocialService] syncFollowCountsFromCloud notice: $e');
+    }
+  }
+
   /// Discover & Search Registered Athletes
   Future<List<SocialUser>> searchUsers(String query) async {
     await _ensureLocalFollowsLoaded();
@@ -1186,7 +1220,7 @@ class SocialService extends ChangeNotifier {
   // 5. NOTIFICATIONS
   // ---------------------------------------------------------------------------
 
-  /// Fetch notifications for current user
+  /// Fetch real notifications for current user from Cloud Firestore (no composite index needed)
   Future<List<SocialNotification>> getNotifications() async {
     await AuthService.instance.ensureInitialized();
     List<SocialNotification> notifications = [];
@@ -1195,38 +1229,16 @@ class SocialService extends ChangeNotifier {
       final snapshot = await _firestore
           .collection('notifications')
           .where('recipientId', isEqualTo: currentUserId)
-          .orderBy('createdAt', descending: true)
-          .limit(40)
+          .limit(50)
           .get();
 
       for (var doc in snapshot.docs) {
         notifications.add(SocialNotification.fromDoc(doc));
       }
-    } catch (_) {}
-
-    if (notifications.isEmpty) {
-      notifications = [
-        SocialNotification(
-          id: 'seed_notif_01',
-          recipientId: currentUserId,
-          senderId: 'athlete_siva_01',
-          senderUsername: 'siva_runner',
-          type: 'follow',
-          message: 'started following you',
-          isRead: false,
-          createdAt: DateTime.now().subtract(const Duration(minutes: 45)),
-        ),
-        SocialNotification(
-          id: 'seed_notif_02',
-          recipientId: currentUserId,
-          senderId: 'athlete_karthik_02',
-          senderUsername: 'karthik_pace',
-          type: 'like',
-          message: 'liked your running post',
-          isRead: true,
-          createdAt: DateTime.now().subtract(const Duration(hours: 4)),
-        ),
-      ];
+      // Sort newest first in Dart so no Firestore Composite Index is required
+      notifications.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    } catch (e) {
+      debugPrint('[SocialService] getNotifications notice: $e');
     }
 
     _cachedNotifications.clear();

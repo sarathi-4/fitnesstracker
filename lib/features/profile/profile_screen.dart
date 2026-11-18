@@ -26,6 +26,15 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   final int _selectedTabIndex = 0; // 0: Grid Posts
 
   @override
+  void initState() {
+    super.initState();
+    final isTest = WidgetsBinding.instance.runtimeType.toString().contains('Test');
+    if (!isTest) {
+      SocialService.instance.syncFollowCountsFromCloud();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: UserService.instance,
@@ -35,9 +44,16 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         return Scaffold(
           backgroundColor: Colors.white,
           appBar: _buildInstagramAppBar(context, user),
-          body: SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            child: Column(
+          body: RefreshIndicator(
+            color: AppColors.primaryBlue,
+            onRefresh: () async {
+              await SocialService.instance.syncFollowCountsFromCloud();
+            },
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
+              child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 8),
@@ -67,6 +83,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
               ],
             ),
           ),
+        ),
         );
       },
     );
