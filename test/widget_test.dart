@@ -160,12 +160,6 @@ void main() {
       // Toggle to Satellite mode
       await tester.tap(find.text('Satellite'));
       await tester.pumpAndSettle();
-
-      // Verify & Toggle 360° Street View on Maps Screen
-      expect(find.text('STREET'), findsOneWidget);
-      await tester.tap(find.text('STREET'));
-      await tester.pumpAndSettle();
-      expect(find.text('360° Google Street View'), findsWidgets);
     });
 
     // TEST 7: Profile & Instagram-style Athlete Screen
@@ -202,19 +196,13 @@ void main() {
       expect(find.text('Distance'), findsOneWidget);
       expect(find.text('Speed'), findsOneWidget);
 
-      // Verify Controls (3D & Live Street View)
+      // Verify Controls
       expect(find.text('3D'), findsOneWidget);
-      expect(find.text('STREET'), findsOneWidget);
 
       // Verify Start Tracking Button & Tap it
       expect(find.text('Start Tracking'), findsOneWidget);
       await tester.tap(find.text('Start Tracking'));
       await tester.pumpAndSettle();
-
-      // Toggle Live 360° Street View while running
-      await tester.tap(find.text('STREET'));
-      await tester.pumpAndSettle();
-      expect(find.text('Live 360° Street View'), findsOneWidget);
 
       // Workout is now running -> Pause button and Flag icon are visible
       expect(find.byIcon(Icons.pause_rounded), findsOneWidget);

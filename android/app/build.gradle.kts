@@ -60,7 +60,3 @@ kotlin {
 flutter {
     source = "../.."
 }
-
-dependencies {
-    implementation("com.google.android.gms:play-services-maps:20.0.0")
-}
