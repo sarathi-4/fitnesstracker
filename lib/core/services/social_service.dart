@@ -433,59 +433,6 @@ class SocialService extends ChangeNotifier {
     }
   }
 
-  List<SocialUser> _buildSeedAthletes() {
-    return [
-      SocialUser(
-        uid: 'athlete_siva_01',
-        username: 'siva_runner',
-        displayName: 'Siva Prakash',
-        bio: '10K Marathon Athlete • Guijiliyamparai',
-        location: 'Guijiliyamparai, Dindigul',
-        fitnessInfo: '10K Marathon • 4:52 pace',
-        followersCount: 520,
-        followingCount: 310,
-        postsCount: 14,
-        isFollowing: _followingUserIds.contains('athlete_siva_01'),
-      ),
-      SocialUser(
-        uid: 'athlete_karthik_02',
-        username: 'karthik_pace',
-        displayName: 'Karthik Raja',
-        bio: 'Trail Running & Cycling Champion 🚴‍♂️',
-        location: 'Karur Road, Tamil Nadu',
-        fitnessInfo: 'Cycling & Trail Running • 24 km/h',
-        followersCount: 890,
-        followingCount: 420,
-        postsCount: 26,
-        isFollowing: _followingUserIds.contains('athlete_karthik_02'),
-      ),
-      SocialUser(
-        uid: 'athlete_priya_03',
-        username: 'priya_fitness',
-        displayName: 'Priya Dharshini',
-        bio: 'Daily 5K Runner • Chennai Road Runners',
-        location: 'Chennai / Dindigul',
-        fitnessInfo: 'Daily 5K Runner • 5:10 pace',
-        followersCount: 640,
-        followingCount: 290,
-        postsCount: 18,
-        isFollowing: _followingUserIds.contains('athlete_priya_03'),
-      ),
-      SocialUser(
-        uid: 'athlete_arun_04',
-        username: 'arun_speed',
-        displayName: 'Arun Kumar',
-        bio: 'Fitness & Stamina Enthusiast • JAIHIND Club',
-        location: 'Madurai Highway, Tamil Nadu',
-        fitnessInfo: 'Endurance Runner • 5K PB: 22m',
-        followersCount: 310,
-        followingCount: 180,
-        postsCount: 8,
-        isFollowing: _followingUserIds.contains('athlete_arun_04'),
-      ),
-    ];
-  }
-
   /// Current user UID
   String get currentUserId {
     try {
@@ -671,8 +618,6 @@ class SocialService extends ChangeNotifier {
     await _ensureLocalFollowsLoaded();
     await AuthService.instance.ensureInitialized();
 
-    final seedById = {for (final s in _buildSeedAthletes()) s.uid: s};
-
     try {
       final snapshot = await _firestore
           .collection('follows')
@@ -695,12 +640,7 @@ class SocialService extends ChangeNotifier {
           }
         } catch (_) {}
 
-        // Fallback 1: match built-in JAIHIND club seed athlete
-        if (resolved == null && seedById.containsKey(followedId)) {
-          resolved = seedById[followedId]!..isFollowing = true;
-        }
-
-        // Fallback 2: snapshot metadata stored on the follow document
+        // Fallback: snapshot metadata stored on the follow document
         resolved ??= SocialUser(
           uid: followedId,
           username: (data['followedUsername'] ?? followedId).toString(),
@@ -721,16 +661,12 @@ class SocialService extends ChangeNotifier {
     // Ensure every ID in _followingUserIds has a displayable profile entry
     for (final uid in _followingUserIds) {
       if (!_followedUsersMap.containsKey(uid)) {
-        if (seedById.containsKey(uid)) {
-          _followedUsersMap[uid] = seedById[uid]!..isFollowing = true;
-        } else {
-          _followedUsersMap[uid] = SocialUser(
-            uid: uid,
-            username: uid,
-            displayName: 'JAIHIND Athlete',
-            isFollowing: true,
-          );
-        }
+        _followedUsersMap[uid] = SocialUser(
+          uid: uid,
+          username: uid,
+          displayName: 'JAIHIND Athlete',
+          isFollowing: true,
+        );
       }
     }
 
@@ -816,23 +752,46 @@ class SocialService extends ChangeNotifier {
     }
   }
 
-  /// Discover & Search Registered Athletes
+  /// Clears all cached follow lists, posts, and notifications on logout/reset.
+  Future<void> clearLocalCache() async {
+    _followingUserIds.clear();
+    _followedUsersMap.clear();
+    _likedPostIds.clear();
+    _cachedFeedPosts.clear();
+    _cachedNotifications.clear();
+    _hasLoadedLocalFollows = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keysToRemove = prefs
+          .getKeys()
+          .where((k) => k.startsWith('followed_users_v1_'))
+          .toList();
+      for (final k in keysToRemove) {
+        await prefs.remove(k);
+      }
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// Discover & Search Registered Athletes (Real Cloud Firestore Users ONLY — 0 Fake Suggestions)
   Future<List<SocialUser>> searchUsers(String query) async {
     await _ensureLocalFollowsLoaded();
     await AuthService.instance.ensureInitialized();
     final cleanQuery = query.trim().toLowerCase();
 
-    List<SocialUser> results = [];
+    final List<SocialUser> results = [];
     try {
       final snapshot = await _firestore
           .collection('users')
-          .limit(25)
+          .limit(50)
           .get();
 
       for (var doc in snapshot.docs) {
         if (doc.id == currentUserId) continue; // Don't show self in search
         final data = doc.data();
-        final username = (data['username'] ?? '').toString().toLowerCase();
+        final rawUsername = (data['username'] ?? '').toString().trim();
+        if (rawUsername.isEmpty) continue; // Ignore empty/unregistered placeholder docs
+        final username = rawUsername.toLowerCase();
         final name = (data['fullName'] ?? data['displayName'] ?? '').toString().toLowerCase();
 
         if (cleanQuery.isEmpty || username.contains(cleanQuery) || name.contains(cleanQuery)) {
@@ -842,17 +801,7 @@ class SocialService extends ChangeNotifier {
       }
     } catch (_) {}
 
-    // Fallback seed list of active JAIHIND club athletes if database is initial
-    if (results.isEmpty) {
-      final seedAthletes = _buildSeedAthletes();
-
-      results = seedAthletes.where((a) {
-        if (cleanQuery.isEmpty) return true;
-        return a.username.toLowerCase().contains(cleanQuery) ||
-            a.displayName.toLowerCase().contains(cleanQuery);
-      }).toList();
-    }
-
+    // 0 fake/seed suggestions: strictly returns only real registered users!
     return results;
   }
 
@@ -1572,10 +1521,21 @@ class SocialService extends ChangeNotifier {
       }
     } catch (_) {}
 
-    // Check seed athletes
-    final seedUsers = await searchUsers(extractedUsername ?? extractedUid ?? '');
-    if (seedUsers.isNotEmpty) {
-      return seedUsers.first;
+    // If scanned while offline or before Firestore sync, construct from validated QR payload
+    if ((extractedUsername != null && extractedUsername.isNotEmpty) ||
+        (extractedUid != null && extractedUid.isNotEmpty)) {
+      final uid = (extractedUid != null && extractedUid.isNotEmpty)
+          ? extractedUid
+          : extractedUsername!;
+      final uname = (extractedUsername != null && extractedUsername.isNotEmpty)
+          ? extractedUsername
+          : uid;
+      return SocialUser(
+        uid: uid,
+        username: uname,
+        displayName: uname,
+        isFollowing: _followingUserIds.contains(uid),
+      );
     }
 
     return null;

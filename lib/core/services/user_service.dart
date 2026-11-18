@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'social_service.dart';
 
 class WorkoutActivity {
   final String id;
@@ -500,11 +502,43 @@ class UserService extends ChangeNotifier {
     }
   }
 
+  // Bump this integer whenever forcing a clean fresh logout across all devices
+  static const int _sessionResetVersion = 2;
+
   // Initialize session on app startup
   Future<void> initSession() async {
     // 1. Try SharedPreferences
     try {
       final prefs = await SharedPreferences.getInstance();
+
+      // One-time clean force logout & fresh reset for all previously signed-in sessions
+      final savedResetVersion = prefs.getInt('sessionResetVersion') ?? 0;
+      if (savedResetVersion < _sessionResetVersion) {
+        try {
+          await FirebaseAuth.instance.signOut();
+        } catch (_) {}
+        await prefs.clear();
+        await prefs.setInt('sessionResetVersion', _sessionResetVersion);
+        try {
+          final file = await _getSessionFile();
+          if (await file.exists()) {
+            await file.delete();
+          }
+        } catch (_) {}
+        await SocialService.instance.clearLocalCache();
+        _isLoggedIn = false;
+        _followersCount = 0;
+        _followingCount = 0;
+        _bio = '';
+        _website = '';
+        _profileImagePath = null;
+        _profilePosts.clear();
+        _savedActivities.clear();
+        _manualStreakDates.clear();
+        notifyListeners();
+        return;
+      }
+
       final loggedIn = prefs.getBool('isLoggedIn') ?? false;
       if (loggedIn) {
         _isLoggedIn = true;
@@ -772,14 +806,30 @@ class UserService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Log Out -> Clears session
+  // Log Out -> Clears session & social caches completely
   Future<void> logOut() async {
     _isLoggedIn = false;
+    _followersCount = 0;
+    _followingCount = 0;
+    _profilePosts.clear();
+    _savedActivities.clear();
+    _manualStreakDates.clear();
+    _bio = '';
+    _website = '';
+    _profileImagePath = null;
+
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+
+    await SocialService.instance.clearLocalCache();
     await _saveSession();
 
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isLoggedIn', false);
+      await prefs.setInt('userFollowersCount', 0);
+      await prefs.setInt('userFollowingCount', 0);
     } catch (_) {}
 
     try {

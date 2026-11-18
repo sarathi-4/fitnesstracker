@@ -484,13 +484,17 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> with SingleTicker
                 child: const Icon(Icons.person_search_rounded, size: 34, color: AppColors.primaryOrange),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'No Athletes Found',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Colors.black87),
+              Text(
+                _searchController.text.trim().isEmpty
+                    ? 'No Athletes Yet'
+                    : 'No Athletes Found',
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Colors.black87),
               ),
               const SizedBox(height: 6),
               Text(
-                'No registered athletes matched "${_searchController.text}". Invite friends to run together!',
+                _searchController.text.trim().isEmpty
+                    ? 'No suggestions yet. Invite your friends to sign up and run together on JAIHIND!'
+                    : 'No registered athletes matched "${_searchController.text}". Invite friends to run together!',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
               ),
