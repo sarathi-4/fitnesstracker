@@ -66,5 +66,32 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>GMSApiKey</key>
+	<string></string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>JAIHIND needs location access to track your workout route, distance, and speed on the live map.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>JAIHIND needs background location access to keep tracking your running, walking, cycling, and hiking routes even when your screen is locked.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>JAIHIND needs background location access to keep tracking your workout route when the screen is off.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>JAIHIND needs camera access to take workout photos and scan athlete QR codes.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>JAIHIND needs photo library access to select profile pictures and share workout photos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>JAIHIND needs permission to save workout activity cards to your photo library.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>JAIHIND uses contacts access only when you choose to invite friends to the runners club.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>JAIHIND uses motion sensors to enhance workout tracking accuracy.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>whatsapp</string>
+		<string>https</string>
+	</array>
 </dict>
 </plist>
