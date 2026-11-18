@@ -482,6 +482,24 @@ class UserService extends ChangeNotifier {
     }
   }
 
+  void syncFollowingCount(int count) {
+    final safeCount = count < 0 ? 0 : count;
+    if (_followingCount != safeCount) {
+      _followingCount = safeCount;
+      _saveSession();
+      notifyListeners();
+    }
+  }
+
+  void syncFollowersCount(int count) {
+    final safeCount = count < 0 ? 0 : count;
+    if (_followersCount != safeCount) {
+      _followersCount = safeCount;
+      _saveSession();
+      notifyListeners();
+    }
+  }
+
   // Initialize session on app startup
   Future<void> initSession() async {
     // 1. Try SharedPreferences

@@ -6,11 +6,13 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/animations/app_animations.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/services/social_service.dart';
 import '../../core/services/user_service.dart';
 import '../../core/widgets/strava_workout_overlay.dart';
 import '../settings/settings_screen.dart';
 import '../social/search_users_screen.dart';
 import '../social/social_feed_screen.dart';
+import '../social/user_profile_screen.dart';
 import '../workout/saved_activities_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -1203,77 +1205,291 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   // ---------------------------------------------------------------------------
 
   void _showFollowersDialog(BuildContext context, String title, {bool isFollowing = false}) {
+    List<SocialUser> users = [];
+    bool isLoading = true;
+    bool hasInitialized = false;
+
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchUsersScreen()));
-                  },
-                  child: const Text('Search Athletes', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryOrange)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Center(
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (sheetCtx, setSheetState) {
+          if (!hasInitialized) {
+            hasInitialized = true;
+            final future = isFollowing
+                ? SocialService.instance.getFollowingUsers()
+                : SocialService.instance.getFollowersUsers();
+            future.then((fetched) {
+              if (sheetCtx.mounted) {
+                setSheetState(() {
+                  users = fetched;
+                  isLoading = false;
+                });
+              }
+            });
+          }
+
+          final liveHeading = isFollowing
+              ? 'Following (${isLoading ? UserService.instance.followingCount : users.length})'
+              : 'Followers (${isLoading ? UserService.instance.followersCount : users.length})';
+
+          return SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.72,
+              ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24.0),
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      isFollowing ? Icons.person_search_rounded : Icons.people_outline_rounded,
-                      size: 48,
-                      color: Colors.grey.shade400,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      isFollowing ? 'Not following anyone yet' : 'No followers yet',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black87),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      isFollowing
-                          ? 'Discover fellow runners to follow on JAIHIND!'
-                          : 'Share your profile or invite friends to grow your runner circle.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 12.5, color: AppColors.textGrey),
-                    ),
-                    const SizedBox(height: 18),
-                    BouncingTap(
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchUsersScreen()));
-                      },
+                    // Drag handle
+                    Center(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 14),
                         decoration: BoxDecoration(
-                          color: AppColors.primaryOrange,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          'Find Athletes 🏃‍♂️',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
                         ),
                       ),
                     ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          liveHeading,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.black,
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const SearchUsersScreen()),
+                            );
+                          },
+                          child: const Text(
+                            'Search Athletes',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primaryBlue,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    if (isLoading)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 40),
+                        child: Center(
+                          child: CircularProgressIndicator(color: AppColors.primaryBlue),
+                        ),
+                      )
+                    else if (users.isEmpty)
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24.0),
+                          child: Column(
+                            children: [
+                              Icon(
+                                isFollowing ? Icons.person_search_rounded : Icons.people_outline_rounded,
+                                size: 48,
+                                color: Colors.grey.shade400,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                isFollowing ? 'Not following anyone yet' : 'No followers yet',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                isFollowing
+                                    ? 'Discover fellow runners to follow on JAIHIND!'
+                                    : 'Share your profile or invite friends to grow your runner circle.',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 12.5, color: AppColors.textGrey),
+                              ),
+                              const SizedBox(height: 18),
+                              BouncingTap(
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const SearchUsersScreen()),
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primaryBlue,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: const Text(
+                                    'Find Athletes 🏃‍♂️',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Flexible(
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: users.length,
+                          separatorBuilder: (_, __) => const Divider(
+                            height: 1,
+                            color: Color(0xFFF1F5F9),
+                          ),
+                          itemBuilder: (_, index) {
+                            final athlete = users[index];
+                            final initial = athlete.username.isNotEmpty
+                                ? athlete.username[0].toUpperCase()
+                                : 'A';
+                            return ListTile(
+                              contentPadding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => UserProfileScreen(user: athlete),
+                                  ),
+                                );
+                              },
+                              leading: CircleAvatar(
+                                radius: 23,
+                                backgroundColor: AppColors.primaryBlue.withValues(alpha: 0.12),
+                                backgroundImage: athlete.profileImageUrl != null &&
+                                        athlete.profileImageUrl!.startsWith('http')
+                                    ? NetworkImage(athlete.profileImageUrl!)
+                                    : null,
+                                child: (athlete.profileImageUrl == null ||
+                                        !athlete.profileImageUrl!.startsWith('http'))
+                                    ? Text(
+                                        initial,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 17,
+                                          color: AppColors.primaryBlue,
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                              title: Text(
+                                '@${athlete.username}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14.5,
+                                  color: Colors.black,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    athlete.displayName,
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF475569),
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if (athlete.location.isNotEmpty)
+                                    Text(
+                                      athlete.location,
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: Color(0xFF94A3B8),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                ],
+                              ),
+                              trailing: SizedBox(
+                                height: 32,
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: athlete.isFollowing
+                                        ? const Color(0xFFF1F5F9)
+                                        : AppColors.primaryBlue,
+                                    foregroundColor: athlete.isFollowing
+                                        ? Colors.black87
+                                        : Colors.white,
+                                    elevation: 0,
+                                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                  onPressed: () async {
+                                    if (athlete.isFollowing) {
+                                      await SocialService.instance.unfollowUser(athlete.uid);
+                                      if (sheetCtx.mounted) {
+                                        setSheetState(() {
+                                          athlete.isFollowing = false;
+                                          if (isFollowing) {
+                                            users.removeAt(index);
+                                          }
+                                        });
+                                      }
+                                    } else {
+                                      await SocialService.instance.followUser(athlete);
+                                      if (sheetCtx.mounted) {
+                                        setSheetState(() {
+                                          athlete.isFollowing = true;
+                                        });
+                                      }
+                                    }
+                                  },
+                                  child: Text(
+                                    athlete.isFollowing ? 'Following' : 'Follow',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
                   ],
                 ),
               ),
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

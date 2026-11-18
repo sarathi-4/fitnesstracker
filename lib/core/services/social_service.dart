@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'auth_service.dart';
 import 'user_service.dart';
 
@@ -214,6 +216,36 @@ class SocialUser {
       isFollowing: isFollowing,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'uid': uid,
+        'username': username,
+        'displayName': displayName,
+        'bio': bio,
+        'profileImageUrl': profileImageUrl,
+        'location': location,
+        'fitnessInfo': fitnessInfo,
+        'followersCount': followersCount,
+        'followingCount': followingCount,
+        'postsCount': postsCount,
+        'isFollowing': isFollowing,
+      };
+
+  factory SocialUser.fromJson(Map<String, dynamic> data) {
+    return SocialUser(
+      uid: data['uid'] ?? '',
+      username: data['username'] ?? 'athlete',
+      displayName: data['displayName'] ?? 'Runner',
+      bio: data['bio'],
+      profileImageUrl: data['profileImageUrl'],
+      location: data['location'] ?? 'Tamil Nadu',
+      fitnessInfo: data['fitnessInfo'] ?? '10K Marathon Athlete',
+      followersCount: data['followersCount'] ?? 0,
+      followingCount: data['followingCount'] ?? 0,
+      postsCount: data['postsCount'] ?? 0,
+      isFollowing: data['isFollowing'] ?? true,
+    );
+  }
 }
 
 /// Model representing a JAIHIND Fitness & Sports Club
@@ -353,8 +385,10 @@ class SocialService extends ChangeNotifier {
   FirebaseAuth get _auth => FirebaseAuth.instance;
   FirebaseStorage get _storage => FirebaseStorage.instance;
 
-  // Local caching for high-speed responsiveness
+  // Local caching for high-speed responsiveness + persistent follow storage
   final Set<String> _followingUserIds = {};
+  final Map<String, SocialUser> _followedUsersMap = {};
+  bool _hasLoadedLocalFollows = false;
   final Set<String> _likedPostIds = {};
   final List<SocialPost> _cachedFeedPosts = [];
   final List<SocialNotification> _cachedNotifications = [];
@@ -362,6 +396,95 @@ class SocialService extends ChangeNotifier {
   List<SocialPost> get cachedFeedPosts => List.unmodifiable(_cachedFeedPosts);
   List<SocialNotification> get cachedNotifications => List.unmodifiable(_cachedNotifications);
   int get unreadNotificationCount => _cachedNotifications.where((n) => !n.isRead).length;
+
+  String get _localFollowsStorageKey => 'followed_users_v1_$currentUserId';
+
+  Future<void> _ensureLocalFollowsLoaded() async {
+    if (_hasLoadedLocalFollows) return;
+    _hasLoadedLocalFollows = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_localFollowsStorageKey);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw) as List<dynamic>;
+        for (final item in decoded) {
+          if (item is Map<String, dynamic>) {
+            final u = SocialUser.fromJson(item);
+            if (u.uid.isNotEmpty) {
+              u.isFollowing = true;
+              _followingUserIds.add(u.uid);
+              _followedUsersMap[u.uid] = u;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[SocialService] loadLocalFollows notice: $e');
+    }
+  }
+
+  Future<void> _saveLocalFollows() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = _followedUsersMap.values.map((u) => u.toJson()).toList();
+      await prefs.setString(_localFollowsStorageKey, jsonEncode(payload));
+    } catch (e) {
+      debugPrint('[SocialService] saveLocalFollows notice: $e');
+    }
+  }
+
+  List<SocialUser> _buildSeedAthletes() {
+    return [
+      SocialUser(
+        uid: 'athlete_siva_01',
+        username: 'siva_runner',
+        displayName: 'Siva Prakash',
+        bio: '10K Marathon Athlete • Guijiliyamparai',
+        location: 'Guijiliyamparai, Dindigul',
+        fitnessInfo: '10K Marathon • 4:52 pace',
+        followersCount: 520,
+        followingCount: 310,
+        postsCount: 14,
+        isFollowing: _followingUserIds.contains('athlete_siva_01'),
+      ),
+      SocialUser(
+        uid: 'athlete_karthik_02',
+        username: 'karthik_pace',
+        displayName: 'Karthik Raja',
+        bio: 'Trail Running & Cycling Champion 🚴‍♂️',
+        location: 'Karur Road, Tamil Nadu',
+        fitnessInfo: 'Cycling & Trail Running • 24 km/h',
+        followersCount: 890,
+        followingCount: 420,
+        postsCount: 26,
+        isFollowing: _followingUserIds.contains('athlete_karthik_02'),
+      ),
+      SocialUser(
+        uid: 'athlete_priya_03',
+        username: 'priya_fitness',
+        displayName: 'Priya Dharshini',
+        bio: 'Daily 5K Runner • Chennai Road Runners',
+        location: 'Chennai / Dindigul',
+        fitnessInfo: 'Daily 5K Runner • 5:10 pace',
+        followersCount: 640,
+        followingCount: 290,
+        postsCount: 18,
+        isFollowing: _followingUserIds.contains('athlete_priya_03'),
+      ),
+      SocialUser(
+        uid: 'athlete_arun_04',
+        username: 'arun_speed',
+        displayName: 'Arun Kumar',
+        bio: 'Fitness & Stamina Enthusiast • JAIHIND Club',
+        location: 'Madurai Highway, Tamil Nadu',
+        fitnessInfo: 'Endurance Runner • 5K PB: 22m',
+        followersCount: 310,
+        followingCount: 180,
+        postsCount: 8,
+        isFollowing: _followingUserIds.contains('athlete_arun_04'),
+      ),
+    ];
+  }
 
   /// Current user UID
   String get currentUserId {
@@ -389,6 +512,7 @@ class SocialService extends ChangeNotifier {
   /// Checks whether current user is following targetUserId
   Future<bool> isFollowing(String targetUserId) async {
     if (targetUserId == currentUserId) return false;
+    await _ensureLocalFollowsLoaded();
     if (_followingUserIds.contains(targetUserId)) return true;
 
     await AuthService.instance.ensureInitialized();
@@ -409,27 +533,59 @@ class SocialService extends ChangeNotifier {
   Future<bool> followUser(SocialUser targetUser) async {
     if (targetUser.uid == currentUserId) return false; // Prevent following oneself
 
+    await _ensureLocalFollowsLoaded();
+    final bool alreadyFollowing = _followingUserIds.contains(targetUser.uid);
+
     await AuthService.instance.ensureInitialized();
     final followDocId = '${currentUserId}_${targetUser.uid}';
+
+    final followedSnapshot = SocialUser(
+      uid: targetUser.uid,
+      username: targetUser.username,
+      displayName: targetUser.displayName,
+      bio: targetUser.bio,
+      profileImageUrl: targetUser.profileImageUrl,
+      location: targetUser.location,
+      fitnessInfo: targetUser.fitnessInfo,
+      followersCount: alreadyFollowing ? targetUser.followersCount : targetUser.followersCount + 1,
+      followingCount: targetUser.followingCount,
+      postsCount: targetUser.postsCount,
+      isFollowing: true,
+    );
 
     try {
       final batch = _firestore.batch();
 
-      // 1. Create follow relationship document
+      // 1. Create follow relationship document with user snapshot metadata
       final followRef = _firestore.collection('follows').doc(followDocId);
       batch.set(followRef, {
         'followerId': currentUserId,
+        'followerUsername': currentUsername,
+        'followerDisplayName': currentDisplayName,
         'followedId': targetUser.uid,
+        'followedUsername': targetUser.username,
+        'followedDisplayName': targetUser.displayName,
+        'followedLocation': targetUser.location,
+        'followedFitnessInfo': targetUser.fitnessInfo,
+        'followedProfileImage': targetUser.profileImageUrl,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // 2. Increment target user followersCount
+      // 2. Increment target user followersCount (ignore failure if seed athlete doc doesn't exist)
       final targetUserRef = _firestore.collection('users').doc(targetUser.uid);
-      batch.update(targetUserRef, {'followersCount': FieldValue.increment(1)});
+      batch.set(
+        targetUserRef,
+        {'followersCount': FieldValue.increment(1)},
+        SetOptions(merge: true),
+      );
 
       // 3. Increment current user followingCount
       final currentUserRef = _firestore.collection('users').doc(currentUserId);
-      batch.update(currentUserRef, {'followingCount': FieldValue.increment(1)});
+      batch.set(
+        currentUserRef,
+        {'followingCount': FieldValue.increment(1)},
+        SetOptions(merge: true),
+      );
 
       // 4. Create Notification for target user
       final notifRef = _firestore.collection('notifications').doc();
@@ -446,37 +602,28 @@ class SocialService extends ChangeNotifier {
       });
 
       await batch.commit();
-
-      _followingUserIds.add(targetUser.uid);
-      targetUser.isFollowing = true;
-      targetUser = SocialUser(
-        uid: targetUser.uid,
-        username: targetUser.username,
-        displayName: targetUser.displayName,
-        bio: targetUser.bio,
-        profileImageUrl: targetUser.profileImageUrl,
-        followersCount: targetUser.followersCount + 1,
-        followingCount: targetUser.followingCount,
-        postsCount: targetUser.postsCount,
-        isFollowing: true,
-      );
-      UserService.instance.incrementFollowing();
-      notifyListeners();
-      return true;
     } catch (e) {
       debugPrint('[SocialService] followUser notice: $e');
-      // Optimistic local update so UI responds instantly
-      _followingUserIds.add(targetUser.uid);
-      targetUser.isFollowing = true;
-      UserService.instance.incrementFollowing();
-      notifyListeners();
-      return true;
     }
+
+    _followingUserIds.add(targetUser.uid);
+    _followedUsersMap[targetUser.uid] = followedSnapshot;
+    targetUser.isFollowing = true;
+    await _saveLocalFollows();
+    if (!alreadyFollowing) {
+      UserService.instance.incrementFollowing();
+    }
+    notifyListeners();
+    return true;
   }
 
   /// Unfollow an athlete
   Future<bool> unfollowUser(String targetUserId) async {
     if (targetUserId == currentUserId) return false;
+
+    await _ensureLocalFollowsLoaded();
+    final bool wasFollowing = _followingUserIds.contains(targetUserId) ||
+        _followedUsersMap.containsKey(targetUserId);
 
     await AuthService.instance.ensureInitialized();
     final followDocId = '${currentUserId}_$targetUserId';
@@ -490,29 +637,154 @@ class SocialService extends ChangeNotifier {
 
       // 2. Decrement target user followersCount
       final targetUserRef = _firestore.collection('users').doc(targetUserId);
-      batch.update(targetUserRef, {'followersCount': FieldValue.increment(-1)});
+      batch.set(
+        targetUserRef,
+        {'followersCount': FieldValue.increment(-1)},
+        SetOptions(merge: true),
+      );
 
       // 3. Decrement current user followingCount
       final currentUserRef = _firestore.collection('users').doc(currentUserId);
-      batch.update(currentUserRef, {'followingCount': FieldValue.increment(-1)});
+      batch.set(
+        currentUserRef,
+        {'followingCount': FieldValue.increment(-1)},
+        SetOptions(merge: true),
+      );
 
       await batch.commit();
-
-      _followingUserIds.remove(targetUserId);
-      UserService.instance.decrementFollowing();
-      notifyListeners();
-      return true;
     } catch (e) {
       debugPrint('[SocialService] unfollowUser notice: $e');
-      _followingUserIds.remove(targetUserId);
-      UserService.instance.decrementFollowing();
-      notifyListeners();
-      return true;
     }
+
+    _followingUserIds.remove(targetUserId);
+    _followedUsersMap.remove(targetUserId);
+    await _saveLocalFollows();
+    if (wasFollowing || UserService.instance.followingCount > _followedUsersMap.length) {
+      UserService.instance.decrementFollowing();
+    }
+    notifyListeners();
+    return true;
+  }
+
+  /// Returns the full list of athletes currently followed by the signed-in user.
+  Future<List<SocialUser>> getFollowingUsers() async {
+    await _ensureLocalFollowsLoaded();
+    await AuthService.instance.ensureInitialized();
+
+    final seedById = {for (final s in _buildSeedAthletes()) s.uid: s};
+
+    try {
+      final snapshot = await _firestore
+          .collection('follows')
+          .where('followerId', isEqualTo: currentUserId)
+          .get();
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final followedId = (data['followedId'] ?? '').toString();
+        if (followedId.isEmpty || followedId == currentUserId) continue;
+
+        _followingUserIds.add(followedId);
+
+        // Try loading live profile from `users/{followedId}`
+        SocialUser? resolved;
+        try {
+          final userDoc = await _firestore.collection('users').doc(followedId).get();
+          if (userDoc.exists && (userDoc.data()?.containsKey('username') == true)) {
+            resolved = SocialUser.fromDoc(userDoc, isFollowing: true);
+          }
+        } catch (_) {}
+
+        // Fallback 1: match built-in JAIHIND club seed athlete
+        if (resolved == null && seedById.containsKey(followedId)) {
+          resolved = seedById[followedId]!..isFollowing = true;
+        }
+
+        // Fallback 2: snapshot metadata stored on the follow document
+        resolved ??= SocialUser(
+          uid: followedId,
+          username: (data['followedUsername'] ?? followedId).toString(),
+          displayName: (data['followedDisplayName'] ?? data['followedUsername'] ?? 'JAIHIND Athlete').toString(),
+          profileImageUrl: data['followedProfileImage'] as String?,
+          location: (data['followedLocation'] ?? 'Tamil Nadu').toString(),
+          fitnessInfo: (data['followedFitnessInfo'] ?? 'JAIHIND Runner').toString(),
+          isFollowing: true,
+        );
+
+        _followedUsersMap[followedId] = resolved;
+      }
+      await _saveLocalFollows();
+    } catch (e) {
+      debugPrint('[SocialService] getFollowingUsers notice: $e');
+    }
+
+    // Ensure every ID in _followingUserIds has a displayable profile entry
+    for (final uid in _followingUserIds) {
+      if (!_followedUsersMap.containsKey(uid)) {
+        if (seedById.containsKey(uid)) {
+          _followedUsersMap[uid] = seedById[uid]!..isFollowing = true;
+        } else {
+          _followedUsersMap[uid] = SocialUser(
+            uid: uid,
+            username: uid,
+            displayName: 'JAIHIND Athlete',
+            isFollowing: true,
+          );
+        }
+      }
+    }
+
+    final list = _followedUsersMap.values.toList();
+    // Keep profile counter strictly consistent with the actual list of followed people
+    UserService.instance.syncFollowingCount(list.length);
+    return list;
+  }
+
+  /// Returns the list of athletes who follow the current user.
+  Future<List<SocialUser>> getFollowersUsers() async {
+    await _ensureLocalFollowsLoaded();
+    await AuthService.instance.ensureInitialized();
+
+    final List<SocialUser> followers = [];
+    try {
+      final snapshot = await _firestore
+          .collection('follows')
+          .where('followedId', isEqualTo: currentUserId)
+          .get();
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final followerId = (data['followerId'] ?? '').toString();
+        if (followerId.isEmpty || followerId == currentUserId) continue;
+
+        final isFolBack = await isFollowing(followerId);
+        SocialUser? resolved;
+        try {
+          final userDoc = await _firestore.collection('users').doc(followerId).get();
+          if (userDoc.exists && (userDoc.data()?.containsKey('username') == true)) {
+            resolved = SocialUser.fromDoc(userDoc, isFollowing: isFolBack);
+          }
+        } catch (_) {}
+
+        resolved ??= SocialUser(
+          uid: followerId,
+          username: (data['followerUsername'] ?? followerId).toString(),
+          displayName: (data['followerDisplayName'] ?? 'JAIHIND Athlete').toString(),
+          isFollowing: isFolBack,
+        );
+
+        followers.add(resolved);
+      }
+      UserService.instance.syncFollowersCount(followers.length);
+    } catch (e) {
+      debugPrint('[SocialService] getFollowersUsers notice: $e');
+    }
+    return followers;
   }
 
   /// Discover & Search Registered Athletes
   Future<List<SocialUser>> searchUsers(String query) async {
+    await _ensureLocalFollowsLoaded();
     await AuthService.instance.ensureInitialized();
     final cleanQuery = query.trim().toLowerCase();
 
@@ -538,56 +810,7 @@ class SocialService extends ChangeNotifier {
 
     // Fallback seed list of active JAIHIND club athletes if database is initial
     if (results.isEmpty) {
-      final seedAthletes = [
-        SocialUser(
-          uid: 'athlete_siva_01',
-          username: 'siva_runner',
-          displayName: 'Siva Prakash',
-          bio: '10K Marathon Athlete • Guijiliyamparai',
-          location: 'Guijiliyamparai, Dindigul',
-          fitnessInfo: '10K Marathon • 4:52 pace',
-          followersCount: 520,
-          followingCount: 310,
-          postsCount: 14,
-          isFollowing: _followingUserIds.contains('athlete_siva_01'),
-        ),
-        SocialUser(
-          uid: 'athlete_karthik_02',
-          username: 'karthik_pace',
-          displayName: 'Karthik Raja',
-          bio: 'Trail Running & Cycling Champion 🚴‍♂️',
-          location: 'Karur Road, Tamil Nadu',
-          fitnessInfo: 'Cycling & Trail Running • 24 km/h',
-          followersCount: 890,
-          followingCount: 420,
-          postsCount: 26,
-          isFollowing: _followingUserIds.contains('athlete_karthik_02'),
-        ),
-        SocialUser(
-          uid: 'athlete_priya_03',
-          username: 'priya_fitness',
-          displayName: 'Priya Dharshini',
-          bio: 'Daily 5K Runner • Chennai Road Runners',
-          location: 'Chennai / Dindigul',
-          fitnessInfo: 'Daily 5K Runner • 5:10 pace',
-          followersCount: 640,
-          followingCount: 290,
-          postsCount: 18,
-          isFollowing: _followingUserIds.contains('athlete_karthik_02'),
-        ),
-        SocialUser(
-          uid: 'athlete_arun_04',
-          username: 'arun_speed',
-          displayName: 'Arun Kumar',
-          bio: 'Fitness & Stamina Enthusiast • JAIHIND Club',
-          location: 'Madurai Highway, Tamil Nadu',
-          fitnessInfo: 'Endurance Runner • 5K PB: 22m',
-          followersCount: 310,
-          followingCount: 180,
-          postsCount: 8,
-          isFollowing: _followingUserIds.contains('athlete_arun_04'),
-        ),
-      ];
+      final seedAthletes = _buildSeedAthletes();
 
       results = seedAthletes.where((a) {
         if (cleanQuery.isEmpty) return true;

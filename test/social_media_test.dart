@@ -258,5 +258,23 @@ void main() {
       user.decrementFollowing();
       expect(user.followingCount, initialFollowing);
     });
+
+    test('12. getFollowingUsers returns followed athlete IDs and removes them on unfollow', () async {
+      final social = SocialService.instance;
+      final athlete = SocialUser(
+        uid: 'test_friend_01',
+        username: 'karthik_pace',
+        displayName: 'Karthik Raja',
+        location: 'Dindigul',
+      );
+
+      await social.followUser(athlete);
+      final followedList = await social.getFollowingUsers();
+      expect(followedList.any((u) => u.uid == 'test_friend_01' && u.username == 'karthik_pace'), isTrue);
+
+      await social.unfollowUser('test_friend_01');
+      final afterUnfollow = await social.getFollowingUsers();
+      expect(afterUnfollow.any((u) => u.uid == 'test_friend_01'), isFalse);
+    });
   });
 }
