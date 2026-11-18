@@ -1,21 +1,54 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
+
+/// Launches 100% FREE official Google Street View at the exact [target] coordinate
+/// and optional [heading] using Google's official Maps URLs / Street View intent.
+/// Requires ZERO Google Cloud Billing or API quota.
+Future<bool> launchFreeGoogleStreetView(
+  LatLng target, {
+  double heading = 0.0,
+}) async {
+  final lat = target.latitude;
+  final lng = target.longitude;
+  final h = heading.round() % 360;
+  final nativeUri = Uri.parse('google.streetview:cbll=$lat,$lng&cbp=0,$h,0,0,0');
+  final webUri = Uri.parse(
+    'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=$lat,$lng&heading=$h',
+  );
+  try {
+    final launchedNative = await launchUrl(
+      nativeUri,
+      mode: LaunchMode.externalApplication,
+    );
+    if (launchedNative) return true;
+  } catch (_) {}
+  try {
+    return await launchUrl(webUri, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    return false;
+  }
+}
 
 /// Controller for live updates to the native Android 360° Google Street View.
 class JaihindStreetViewController {
   MethodChannel? _channel;
+  void Function(LatLng)? _onPositionTracked;
 
-  void _attach(MethodChannel channel) {
+  void _attach(MethodChannel channel, void Function(LatLng) onPositionTracked) {
     _channel = channel;
+    _onPositionTracked = onPositionTracked;
   }
 
   void _detach() {
     _channel = null;
+    _onPositionTracked = null;
   }
 
   /// Move Street View to a new GPS location (e.g. while running/cycling live).
@@ -24,6 +57,7 @@ class JaihindStreetViewController {
     double? bearing,
     int radius = 250,
   }) async {
+    _onPositionTracked?.call(target);
     final ch = _channel;
     if (ch == null) return;
     try {
@@ -71,6 +105,7 @@ class JaihindStreetView extends StatefulWidget {
   final LatLng initialPosition;
   final double initialBearing;
   final int searchRadiusMeters;
+  final double bottomOverlayPadding;
   final ValueChanged<JaihindStreetViewController>? onCreated;
   final ValueChanged<double>? onBearingChanged;
   final void Function(bool available, LatLng? snappedPoint)? onAvailabilityChanged;
@@ -81,6 +116,7 @@ class JaihindStreetView extends StatefulWidget {
     required this.initialPosition,
     this.initialBearing = 0.0,
     this.searchRadiusMeters = 250,
+    this.bottomOverlayPadding = 24.0,
     this.onCreated,
     this.onBearingChanged,
     this.onAvailabilityChanged,
@@ -96,24 +132,64 @@ class _JaihindStreetViewState extends State<JaihindStreetView> {
 
   final JaihindStreetViewController _controller = JaihindStreetViewController();
   MethodChannel? _channel;
+  Timer? _loadingTimeoutTimer;
+  late LatLng _latestPosition;
   bool _isLoading = true;
   bool _isAvailable = true;
 
   @override
+  void initState() {
+    super.initState();
+    _latestPosition = widget.initialPosition;
+    // Automatically clear loading spinner after 4s (e.g. if Google Cloud quota/billing is blocked)
+    _loadingTimeoutTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted && _isLoading) {
+        setState(() => _isLoading = false);
+      }
+    });
+  }
+
+  @override
   void dispose() {
+    _loadingTimeoutTimer?.cancel();
     _channel?.setMethodCallHandler(null);
     _controller._detach();
     super.dispose();
   }
 
+  Future<void> _openFreeGoogleStreetView() async {
+    final lat = _latestPosition.latitude;
+    final lng = _latestPosition.longitude;
+    final nativeUri = Uri.parse('google.streetview:cbll=$lat,$lng');
+    final webUri = Uri.parse(
+      'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=$lat,$lng',
+    );
+    try {
+      final launchedNative = await launchUrl(
+        nativeUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launchedNative) {
+        await launchUrl(webUri, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
+      try {
+        await launchUrl(webUri, mode: LaunchMode.externalApplication);
+      } catch (_) {}
+    }
+  }
+
   void _onPlatformViewCreated(int id) {
     final ch = MethodChannel('com.inpand.jaihindrunnerclub/street_view_$id');
     _channel = ch;
-    _controller._attach(ch);
+    _controller._attach(ch, (pos) {
+      _latestPosition = pos;
+    });
 
     ch.setMethodCallHandler((MethodCall call) async {
       if (!mounted) return;
       if (call.method == 'onAvailabilityChanged') {
+        _loadingTimeoutTimer?.cancel();
         final args = (call.arguments as Map?) ?? {};
         final bool available = args['available'] == true;
         LatLng? snapped;
@@ -122,6 +198,7 @@ class _JaihindStreetViewState extends State<JaihindStreetView> {
             (args['lat'] as num).toDouble(),
             (args['lng'] as num).toDouble(),
           );
+          _latestPosition = snapped;
         }
         setState(() {
           _isLoading = false;
@@ -215,7 +292,7 @@ class _JaihindStreetViewState extends State<JaihindStreetView> {
           ),
         ),
 
-        // Loading Pill
+        // Loading Pill (auto-dismisses after 4s so it never hangs on quota blocks)
         if (_isLoading)
           Positioned(
             top: 136,
@@ -253,6 +330,51 @@ class _JaihindStreetViewState extends State<JaihindStreetView> {
               ),
             ),
           ),
+
+        // 100% Free Google Street View Launcher Pill (works even if Google Cloud Billing/Quota is blocked!)
+        Positioned(
+          left: 16,
+          bottom: widget.bottomOverlayPadding,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(24),
+              onTap: _openFreeGoogleStreetView,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.90),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.24),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.streetview_rounded, color: Color(0xFFFB923C), size: 18),
+                    SizedBox(width: 7),
+                    Text(
+                      'Open in Google Street View',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(width: 5),
+                    Icon(Icons.open_in_new_rounded, color: Colors.white70, size: 14),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
 
         // Smart Fallback Card when no Street View imagery exists nearby (e.g. inside field/park)
         if (!_isLoading && !_isAvailable)
@@ -310,8 +432,8 @@ class _JaihindStreetViewState extends State<JaihindStreetView> {
                           height: 1.45,
                         ),
                       ),
-                      if (widget.onFallbackToMap != null) ...[
-                        const SizedBox(height: 18),
+                      const SizedBox(height: 18),
+                      if (widget.onFallbackToMap != null)
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
@@ -331,7 +453,6 @@ class _JaihindStreetViewState extends State<JaihindStreetView> {
                             ),
                           ),
                         ),
-                      ],
                     ],
                   ),
                 ),

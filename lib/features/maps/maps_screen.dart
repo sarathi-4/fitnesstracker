@@ -19,7 +19,6 @@ class MapsScreen extends StatefulWidget {
 
 class _MapsScreenState extends State<MapsScreen> {
   GoogleMapController? _mapController;
-  JaihindStreetViewController? _streetViewController;
 
   // Selected Map Type: Default, Satellite, Terrain, Hybrid
   MapType _selectedMapType = MapType.normal;
@@ -128,13 +127,16 @@ class _MapsScreenState extends State<MapsScreen> {
       );
       final target = LatLng(pos.latitude, pos.longitude);
       setState(() => _currentLocation = target);
-      if (_isStreetView) {
-        _streetViewController?.updatePosition(target, radius: 250);
-      } else {
-        _mapController?.animateCamera(
-          CameraUpdate.newLatLngZoom(target, 16.0),
-        );
-      }
+      _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: target,
+            zoom: _isStreetView ? 20.0 : (_is3D ? 18.5 : 16.0),
+            tilt: _currentTilt,
+            bearing: _currentBearing,
+          ),
+        ),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -145,39 +147,38 @@ class _MapsScreenState extends State<MapsScreen> {
         );
       }
     } catch (_) {
-      if (_isStreetView) {
-        _streetViewController?.updatePosition(_currentLocation, radius: 250);
-      } else {
-        _mapController?.animateCamera(
-          CameraUpdate.newLatLngZoom(_currentLocation, 16.0),
-        );
-      }
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLngZoom(_currentLocation, _isStreetView ? 20.0 : 16.0),
+      );
     }
   }
 
   void _resetBearingToNorth() {
-    if (_isStreetView) {
-      _streetViewController?.setBearing(0.0);
-    } else {
-      _mapController?.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: _currentLocation,
-            zoom: _is3D ? 18.5 : 15.5,
-            bearing: 0.0,
-            tilt: _currentTilt,
-          ),
+    _mapController?.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: _currentLocation,
+          zoom: _isStreetView ? 20.0 : (_is3D ? 18.5 : 15.5),
+          bearing: 0.0,
+          tilt: _currentTilt,
         ),
-      );
-    }
+      ),
+    );
     if (mounted) {
       setState(() => _currentBearing = 0.0);
     }
   }
 
   // -------------------------------------------------------------
-  // 3D BUILDING MODE & 360° STREET VIEW CONTROLS
+  // 3D BUILDING MODE & FREE STREET VIEW CONTROLS
   // -------------------------------------------------------------
+  Future<void> _openRealFreeStreetView() async {
+    await launchFreeGoogleStreetView(
+      _currentLocation,
+      heading: _currentBearing,
+    );
+  }
+
   void _toggleStreetView({LatLng? targetPoint}) {
     setState(() {
       if (targetPoint != null) {
@@ -186,17 +187,36 @@ class _MapsScreenState extends State<MapsScreen> {
       } else {
         _isStreetView = !_isStreetView;
       }
+
+      if (_isStreetView) {
+        // In-App Street-Level 3D Satellite Road View (100% Free, Zero Quota Errors!)
+        _is3D = true;
+        _currentTilt = 67.5;
+        _selectedMapType = MapType.hybrid;
+      } else {
+        _is3D = false;
+        _currentTilt = 0.0;
+        _selectedMapType = MapType.normal;
+      }
     });
 
-    if (_isStreetView && targetPoint != null) {
-      _streetViewController?.updatePosition(targetPoint, radius: 250);
-    }
+    _mapController?.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: _currentLocation,
+          zoom: _isStreetView ? 20.0 : 15.5,
+          tilt: _currentTilt,
+          bearing: _currentBearing,
+        ),
+      ),
+    );
 
+    ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           _isStreetView
-              ? '🛣️ 360° Street View Active! Drag to look around or tap arrows to walk.'
+              ? '🛣️ Street-Level Road View ON! Tap "360° Photo" for real road panorama.'
               : '🗺️ Back to Map View',
         ),
         duration: const Duration(seconds: 2),
@@ -218,18 +238,16 @@ class _MapsScreenState extends State<MapsScreen> {
       }
     });
 
-    if (!wasStreetView) {
-      _mapController?.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: _currentLocation,
-            zoom: _is3D ? 18.5 : 15.5,
-            tilt: _currentTilt,
-            bearing: _currentBearing,
-          ),
+    _mapController?.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: _currentLocation,
+          zoom: _is3D ? 18.5 : 15.5,
+          tilt: _currentTilt,
+          bearing: _currentBearing,
         ),
-      );
-    }
+      ),
+    );
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -373,24 +391,20 @@ class _MapsScreenState extends State<MapsScreen> {
       );
     });
 
-    if (_isStreetView) {
-      _streetViewController?.updatePosition(target, radius: 300);
-    } else {
-      _mapController?.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: target,
-            zoom: 15.5,
-            tilt: 35.0,
-          ),
+    _mapController?.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: target,
+          zoom: _isStreetView ? 20.0 : 15.5,
+          tilt: _isStreetView ? 67.5 : 35.0,
         ),
-      );
+      ),
+    );
 
-      // Auto-open InfoWindow on the search marker
-      Future.delayed(const Duration(milliseconds: 350), () {
-        _mapController?.showMarkerInfoWindow(const MarkerId('searched_location'));
-      });
-    }
+    // Auto-open InfoWindow on the search marker
+    Future.delayed(const Duration(milliseconds: 350), () {
+      _mapController?.showMarkerInfoWindow(const MarkerId('searched_location'));
+    });
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -570,76 +584,49 @@ class _MapsScreenState extends State<MapsScreen> {
             Expanded(
               child: Stack(
                 children: [
-                  // 1. Google Map View OR Full-Screen 360° Google Street View
-                  if (_isStreetView)
-                    Positioned.fill(
-                      child: JaihindStreetView(
-                        initialPosition: _currentLocation,
-                        initialBearing: _currentBearing,
-                        searchRadiusMeters: 250,
-                        onCreated: (controller) {
-                          _streetViewController = controller;
-                        },
-                        onBearingChanged: (bearing) {
-                          if (mounted && (_currentBearing - bearing).abs() > 1.0) {
-                            setState(() => _currentBearing = bearing);
-                          }
-                        },
-                        onAvailabilityChanged: (available, snapped) {
-                          if (available && snapped != null && mounted) {
-                            _currentLocation = snapped;
-                          }
-                        },
-                        onFallbackToMap: () {
-                          if (mounted) {
-                            setState(() => _isStreetView = false);
-                          }
-                        },
-                      ),
-                    )
-                  else
-                    GoogleMap(
-                      initialCameraPosition: CameraPosition(
-                        target: _currentLocation,
-                        zoom: _is3D ? 18.5 : 14.5,
-                        tilt: _currentTilt,
-                        bearing: _currentBearing,
-                      ),
-                      mapType: _selectedMapType,
-                      buildingsEnabled: true,
-                      tiltGesturesEnabled: true,
-                      rotateGesturesEnabled: true,
-                      zoomGesturesEnabled: true,
-                      scrollGesturesEnabled: true,
-                      myLocationEnabled: true,
-                      myLocationButtonEnabled: false,
-                      zoomControlsEnabled: false,
-                      compassEnabled: false, // Replaced with Real Analog Magnetic Compass
-                      mapToolbarEnabled: false,
-                      markers: _markers,
-                      onLongPress: (LatLng point) {
-                        _toggleStreetView(targetPoint: point);
-                      },
-                      onCameraMove: (CameraPosition pos) {
-                        if (mounted && _currentBearing != pos.bearing) {
-                          setState(() => _currentBearing = pos.bearing);
-                        }
-                      },
-                      onMapCreated: (controller) {
-                        _mapController = controller;
-                      },
+                  // 1. Full-Screen Interactive Google Map (Supports 2D, 3D Buildings & Street-Level Hybrid Road View)
+                  GoogleMap(
+                    initialCameraPosition: CameraPosition(
+                      target: _currentLocation,
+                      zoom: _isStreetView ? 20.0 : (_is3D ? 18.5 : 14.5),
+                      tilt: _currentTilt,
+                      bearing: _currentBearing,
                     ),
+                    mapType: _selectedMapType,
+                    buildingsEnabled: true,
+                    tiltGesturesEnabled: true,
+                    rotateGesturesEnabled: true,
+                    zoomGesturesEnabled: true,
+                    scrollGesturesEnabled: true,
+                    myLocationEnabled: true,
+                    myLocationButtonEnabled: false,
+                    zoomControlsEnabled: false,
+                    compassEnabled: false, // Replaced with Real Analog Magnetic Compass
+                    mapToolbarEnabled: false,
+                    markers: _markers,
+                    onLongPress: (LatLng point) {
+                      _toggleStreetView(targetPoint: point);
+                    },
+                    onCameraMove: (CameraPosition pos) {
+                      if (mounted && _currentBearing != pos.bearing) {
+                        setState(() => _currentBearing = pos.bearing);
+                      }
+                    },
+                    onMapCreated: (controller) {
+                      _mapController = controller;
+                    },
+                  ),
 
-                  // 2. Top Floating Bar: Map Type Selection Pill OR Street View Status Banner
+                  // 2. Top Floating Bar: Map Type Selection Pill OR Street-Level Road View Banner
                   if (_isStreetView)
                     Positioned(
                       top: 14,
                       left: 16,
                       right: 16,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0F172A).withValues(alpha: 0.88),
+                          color: const Color(0xFF0F172A).withValues(alpha: 0.90),
                           borderRadius: BorderRadius.circular(28),
                           boxShadow: [
                             BoxShadow(
@@ -663,33 +650,35 @@ class _MapsScreenState extends State<MapsScreen> {
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w800,
-                                      fontSize: 13.5,
+                                      fontSize: 13,
                                     ),
                                   ),
                                   Text(
-                                    'Drag to look around • Tap road arrows to move',
+                                    'Street-Level Road View • Tap 360° Photo for live road',
                                     style: TextStyle(
                                       color: Colors.white70,
-                                      fontSize: 10.5,
+                                      fontSize: 10,
                                     ),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ],
                               ),
                             ),
+                            const SizedBox(width: 6),
                             TextButton.icon(
                               style: TextButton.styleFrom(
-                                backgroundColor: Colors.white.withValues(alpha: 0.16),
+                                backgroundColor: const Color(0xFFEA580C),
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                               ),
-                              onPressed: () => _toggleStreetView(),
-                              icon: const Icon(Icons.map_rounded, size: 16),
+                              onPressed: _openRealFreeStreetView,
+                              icon: const Icon(Icons.open_in_new_rounded, size: 14),
                               label: const Text(
-                                'Map',
-                                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                                '360° Photo',
+                                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11.5),
                               ),
                             ),
                           ],
@@ -739,7 +728,7 @@ class _MapsScreenState extends State<MapsScreen> {
 
                   // 2b. Real Analog Magnetic Compass (Rotates dynamically with Map & Street View)
                   Positioned(
-                    top: 68,
+                    top: _isStreetView ? 86 : 68,
                     right: 16,
                     child: RealCompassWidget(
                       bearing: _currentBearing,
@@ -750,7 +739,7 @@ class _MapsScreenState extends State<MapsScreen> {
 
                   // 2c. 3D Building Mode Toggle Button
                   Positioned(
-                    top: 130,
+                    top: _isStreetView ? 148 : 130,
                     right: 16,
                     child: Material(
                       color: Colors.transparent,
@@ -811,7 +800,7 @@ class _MapsScreenState extends State<MapsScreen> {
 
                   // 2d. 360° Google Street View Toggle Button
                   Positioned(
-                    top: 192,
+                    top: _isStreetView ? 210 : 192,
                     right: 16,
                     child: Material(
                       color: Colors.transparent,
@@ -926,7 +915,7 @@ class _MapsScreenState extends State<MapsScreen> {
                   // 4. Right Floating Zoom In / Zoom Out (+ / -) Capsule
                   Positioned(
                     right: 16,
-                    top: 256,
+                    top: _isStreetView ? 274 : 256,
                     child: Container(
                       width: 46,
                       decoration: BoxDecoration(
@@ -949,11 +938,7 @@ class _MapsScreenState extends State<MapsScreen> {
                             child: InkWell(
                               borderRadius: const BorderRadius.vertical(top: Radius.circular(23)),
                               onTap: () {
-                                if (_isStreetView) {
-                                  _streetViewController?.zoomIn();
-                                } else {
-                                  _mapController?.animateCamera(CameraUpdate.zoomIn());
-                                }
+                                _mapController?.animateCamera(CameraUpdate.zoomIn());
                               },
                               child: const SizedBox(
                                 width: 46,
@@ -982,11 +967,7 @@ class _MapsScreenState extends State<MapsScreen> {
                             child: InkWell(
                               borderRadius: const BorderRadius.vertical(bottom: Radius.circular(23)),
                               onTap: () {
-                                if (_isStreetView) {
-                                  _streetViewController?.zoomOut();
-                                } else {
-                                  _mapController?.animateCamera(CameraUpdate.zoomOut());
-                                }
+                                _mapController?.animateCamera(CameraUpdate.zoomOut());
                               },
                               child: const SizedBox(
                                 width: 46,
