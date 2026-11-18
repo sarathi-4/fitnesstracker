@@ -7,6 +7,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../core/animations/app_animations.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_config.dart';
+import '../../core/widgets/jaihind_street_view.dart';
 import '../../core/widgets/real_compass_widget.dart';
 import 'save_activity_screen.dart';
 
@@ -45,10 +46,13 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
   int _calories = 0;
   Timer? _timer;
 
-  // Google Maps Controller & Map View Settings
+  // Google Maps & Live 360° Street View Controllers
   GoogleMapController? _mapController;
+  JaihindStreetViewController? _streetViewController;
   MapType _currentMapType = MapType.normal; // Default: Roadmap
   bool _is3D = false;
+  bool _isStreetView = false;
+  LatLng? _lastStreetViewLatLng;
   double _currentTilt = 0.0;
   double _currentBearing = 0.0;
   bool _isHeatmapVisible = false;
@@ -448,9 +452,36 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
   // -------------------------------------------------------------
   // 3D VIEW & 360 DEGREE ROTATION CONTROLS
   // -------------------------------------------------------------
-  void _toggle3DMode() {
+  void _toggleStreetView() {
     setState(() {
-      _is3D = !_is3D;
+      _isStreetView = !_isStreetView;
+      if (_isStreetView) {
+        _lastStreetViewLatLng = _currentLatLng;
+      }
+    });
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _isStreetView
+              ? '🛣️ Live 360° Street View ON! Auto-follows every 20m as you run.'
+              : '🗺️ Switched back to Live Map',
+        ),
+        duration: const Duration(milliseconds: 1600),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 185),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        backgroundColor: _isStreetView ? const Color(0xFFEA580C) : AppColors.primaryBlue,
+      ),
+    );
+  }
+
+  void _toggle3DMode() {
+    final bool wasStreetView = _isStreetView;
+    setState(() {
+      _isStreetView = false;
+      _is3D = wasStreetView ? true : !_is3D;
       _currentTilt = _is3D ? 65.0 : 0.0;
       if (_is3D) {
         // In Google Maps Android SDK, 3D extruded vector buildings ONLY render on MapType.normal!
@@ -459,16 +490,18 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
       }
     });
 
-    _mapController?.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: _currentLatLng,
-          zoom: _is3D ? 19.5 : 17.5,
-          tilt: _currentTilt,
-          bearing: _currentBearing,
+    if (!wasStreetView) {
+      _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: _currentLatLng,
+            zoom: _is3D ? 19.5 : 17.5,
+            tilt: _currentTilt,
+            bearing: _currentBearing,
+          ),
         ),
-      ),
-    );
+      );
+    }
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -488,6 +521,7 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
     // Anna Salai, Chennai with massive 3D extruded buildings & skyscrapers
     const chennai3D = LatLng(13.0604, 80.2496);
     setState(() {
+      _isStreetView = false;
       _is3D = true;
       _currentTilt = 68.0;
       _currentBearing = 45.0;
@@ -520,16 +554,20 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
       _currentBearing = (_currentBearing + 90.0) % 360.0;
     });
 
-    _mapController?.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: _currentLatLng,
-          zoom: _is3D ? 18.5 : 17.5,
-          tilt: _is3D ? 65.0 : 0.0,
-          bearing: _currentBearing,
+    if (_isStreetView) {
+      _streetViewController?.setBearing(_currentBearing);
+    } else {
+      _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: _currentLatLng,
+            zoom: _is3D ? 18.5 : 17.5,
+            tilt: _is3D ? 65.0 : 0.0,
+            bearing: _currentBearing,
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   void _resetBearingToNorth() {
@@ -537,24 +575,36 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
       _currentBearing = 0.0;
     });
 
-    _mapController?.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: _currentLatLng,
-          zoom: _is3D ? 18.5 : 17.5,
-          tilt: _is3D ? 65.0 : 0.0,
-          bearing: 0.0,
+    if (_isStreetView) {
+      _streetViewController?.setBearing(0.0);
+    } else {
+      _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: _currentLatLng,
+            zoom: _is3D ? 18.5 : 17.5,
+            tilt: _is3D ? 65.0 : 0.0,
+            bearing: 0.0,
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   void _zoomIn() {
-    _mapController?.animateCamera(CameraUpdate.zoomIn());
+    if (_isStreetView) {
+      _streetViewController?.zoomIn();
+    } else {
+      _mapController?.animateCamera(CameraUpdate.zoomIn());
+    }
   }
 
   void _zoomOut() {
-    _mapController?.animateCamera(CameraUpdate.zoomOut());
+    if (_isStreetView) {
+      _streetViewController?.zoomOut();
+    } else {
+      _mapController?.animateCamera(CameraUpdate.zoomOut());
+    }
   }
 
   // -------------------------------------------------------------
@@ -690,10 +740,29 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
       _updateMarkersAndCircles();
     });
 
-    // Animate map camera ONLY when genuinely moving
-    _mapController?.animateCamera(
-      CameraUpdate.newLatLng(newPoint),
-    );
+    // Animate map camera OR auto-advance Live 360° Street View every 20m when genuinely moving
+    if (_isStreetView) {
+      final double svDist = _lastStreetViewLatLng == null
+          ? 999.0
+          : Geolocator.distanceBetween(
+              _lastStreetViewLatLng!.latitude,
+              _lastStreetViewLatLng!.longitude,
+              newPoint.latitude,
+              newPoint.longitude,
+            );
+      if (svDist >= 20.0) {
+        _lastStreetViewLatLng = newPoint;
+        _streetViewController?.updatePosition(
+          newPoint,
+          bearing: position.heading > 0 ? position.heading : null,
+          radius: 150,
+        );
+      }
+    } else {
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLng(newPoint),
+      );
+    }
   }
 
   void _updatePolyline() {
@@ -1147,39 +1216,58 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
       body: Stack(
         children: [
           // -------------------------------------------------------------
-          // 1. FULL-SCREEN 3D INTERACTIVE GOOGLE MAP
+          // 1. FULL-SCREEN 3D INTERACTIVE GOOGLE MAP OR LIVE 360° STREET VIEW
           // -------------------------------------------------------------
           Positioned.fill(
-            child: GoogleMap(
-              initialCameraPosition: CameraPosition(
-                target: _currentLatLng,
-                zoom: 17.5,
-                tilt: _is3D ? 65.0 : 0.0,
-                bearing: _currentBearing,
-              ),
-              mapType: _currentMapType,
-              buildingsEnabled: true, // Enables full 3D building extrusions
-              tiltGesturesEnabled: true, // 2-finger drag tilts camera 0° to 67.5°
-              rotateGesturesEnabled: true, // 2-finger twist rotates 360 degrees freely
-              zoomGesturesEnabled: true,
-              scrollGesturesEnabled: true,
-              myLocationEnabled: true,
-              myLocationButtonEnabled: false,
-              compassEnabled: false,
-              zoomControlsEnabled: false,
-              mapToolbarEnabled: false,
-              polylines: _polylines,
-              markers: _markers,
-              circles: _circles,
-              onCameraMove: (position) {
-                if (mounted && _currentBearing != position.bearing) {
-                  setState(() => _currentBearing = position.bearing);
-                }
-              },
-              onMapCreated: (controller) {
-                _mapController = controller;
-              },
-            ),
+            child: _isStreetView
+                ? JaihindStreetView(
+                    initialPosition: _currentLatLng,
+                    initialBearing: _currentBearing,
+                    searchRadiusMeters: 200,
+                    onCreated: (controller) {
+                      _streetViewController = controller;
+                    },
+                    onBearingChanged: (bearing) {
+                      if (mounted && (_currentBearing - bearing).abs() > 1.0) {
+                        setState(() => _currentBearing = bearing);
+                      }
+                    },
+                    onFallbackToMap: () {
+                      if (mounted) {
+                        setState(() => _isStreetView = false);
+                      }
+                    },
+                  )
+                : GoogleMap(
+                    initialCameraPosition: CameraPosition(
+                      target: _currentLatLng,
+                      zoom: _is3D ? 18.5 : 17.5,
+                      tilt: _is3D ? 65.0 : 0.0,
+                      bearing: _currentBearing,
+                    ),
+                    mapType: _currentMapType,
+                    buildingsEnabled: true, // Enables full 3D building extrusions
+                    tiltGesturesEnabled: true, // 2-finger drag tilts camera 0° to 67.5°
+                    rotateGesturesEnabled: true, // 2-finger twist rotates 360 degrees freely
+                    zoomGesturesEnabled: true,
+                    scrollGesturesEnabled: true,
+                    myLocationEnabled: true,
+                    myLocationButtonEnabled: false,
+                    compassEnabled: false,
+                    zoomControlsEnabled: false,
+                    mapToolbarEnabled: false,
+                    polylines: _polylines,
+                    markers: _markers,
+                    circles: _circles,
+                    onCameraMove: (position) {
+                      if (mounted && _currentBearing != position.bearing) {
+                        setState(() => _currentBearing = position.bearing);
+                      }
+                    },
+                    onMapCreated: (controller) {
+                      _mapController = controller;
+                    },
+                  ),
           ),
 
           // -------------------------------------------------------------
@@ -1265,11 +1353,13 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.95),
+                            color: _isStreetView
+                                ? const Color(0xFF0F172A).withValues(alpha: 0.90)
+                                : Colors.white.withValues(alpha: 0.95),
                             borderRadius: BorderRadius.circular(20),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.08),
+                                color: Colors.black.withValues(alpha: 0.10),
                                 blurRadius: 6,
                                 offset: const Offset(0, 2),
                               ),
@@ -1282,21 +1372,25 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
                                 width: 8,
                                 height: 8,
                                 decoration: BoxDecoration(
-                                  color: _isRunning && !_isPaused
-                                      ? AppColors.accentGreen
-                                      : (_isPaused ? Colors.amber : AppColors.primaryBlue),
+                                  color: _isStreetView
+                                      ? const Color(0xFFFB923C)
+                                      : (_isRunning && !_isPaused
+                                          ? AppColors.accentGreen
+                                          : (_isPaused ? Colors.amber : AppColors.primaryBlue)),
                                   shape: BoxShape.circle,
                                 ),
                               ),
                               const SizedBox(width: 7),
                               Text(
-                                _isRunning
-                                    ? (_isPaused ? 'GPS Paused' : 'GPS Tracking')
-                                    : 'Ready to Track',
-                                style: const TextStyle(
+                                _isStreetView
+                                    ? (_isRunning ? 'Live 360° Street View' : '360° Street View')
+                                    : (_isRunning
+                                        ? (_isPaused ? 'GPS Paused' : 'GPS Tracking')
+                                        : 'Ready to Track'),
+                                style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
-                                  color: AppColors.textBlack,
+                                  color: _isStreetView ? Colors.white : AppColors.textBlack,
                                 ),
                               ),
                             ],
@@ -1320,21 +1414,23 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
           ),
 
           // -------------------------------------------------------------
-          // 3. FLOATING ACTION TOOLS (Layers, 3D Building, 360 Orbit, Zoom +/-, Re-Center)
+          // 3. FLOATING ACTION TOOLS (Layers, 3D, Street View, 360°, Zoom, Re-Center)
           // -------------------------------------------------------------
           Positioned(
             right: 16,
-            top: 110,
+            top: 108,
             child: Column(
               children: [
                 // 1. Map Layers Selector
-                _buildFloatingCircleButton(
-                  icon: Icons.layers_rounded,
-                  onTap: _showMapLayerSelectionSheet,
-                ),
-                const SizedBox(height: 10),
+                if (!_isStreetView) ...[
+                  _buildFloatingCircleButton(
+                    icon: Icons.layers_rounded,
+                    onTap: _showMapLayerSelectionSheet,
+                  ),
+                  const SizedBox(height: 8),
+                ],
 
-                // 2. 3D Building & Street View Button (65° tilt + 3D building extrusions)
+                // 2. 3D Building Mode Button (65° tilt + 3D building extrusions)
                 _buildFloatingCircleButton(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -1344,7 +1440,7 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w900,
-                          color: _is3D ? Colors.white : Colors.black,
+                          color: (!_isStreetView && _is3D) ? Colors.white : Colors.black,
                         ),
                       ),
                       Text(
@@ -1352,18 +1448,44 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
                         style: TextStyle(
                           fontSize: 7.5,
                           fontWeight: FontWeight.w800,
-                          color: _is3D ? Colors.white70 : Colors.black54,
+                          color: (!_isStreetView && _is3D) ? Colors.white70 : Colors.black54,
                           letterSpacing: 0.5,
                         ),
                       ),
                     ],
                   ),
-                  backgroundColor: _is3D ? AppColors.primaryBlue : Colors.white,
+                  backgroundColor: (!_isStreetView && _is3D) ? AppColors.primaryBlue : Colors.white,
                   onTap: _toggle3DMode,
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
 
-                // 3. 360° Camera Rotate Button
+                // 3. Live 360° Google Street View Toggle Button (Auto-follows while running!)
+                _buildFloatingCircleButton(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.streetview_rounded,
+                        size: 20,
+                        color: _isStreetView ? Colors.white : const Color(0xFFEA580C),
+                      ),
+                      Text(
+                        'STREET',
+                        style: TextStyle(
+                          fontSize: 7,
+                          fontWeight: FontWeight.w900,
+                          color: _isStreetView ? Colors.white : const Color(0xFF475569),
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: _isStreetView ? const Color(0xFFEA580C) : Colors.white,
+                  onTap: _toggleStreetView,
+                ),
+                const SizedBox(height: 8),
+
+                // 4. 360° Camera Rotate Button
                 _buildFloatingCircleButton(
                   child: const Column(
                     mainAxisSize: MainAxisSize.min,
@@ -1381,9 +1503,9 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
                   ),
                   onTap: _rotate360Degrees,
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
 
-                // 4. Zoom Controls Capsule (+ / -)
+                // 5. Zoom Controls Capsule (+ / -)
                 Container(
                   width: 46,
                   decoration: BoxDecoration(
@@ -1407,7 +1529,7 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
                           onTap: _zoomIn,
                           child: const SizedBox(
                             width: 46,
-                            height: 42,
+                            height: 40,
                             child: Center(
                               child: Icon(Icons.add_rounded, size: 24, color: Color(0xFF333333)),
                             ),
@@ -1422,7 +1544,7 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
                           onTap: _zoomOut,
                           child: const SizedBox(
                             width: 46,
-                            height: 42,
+                            height: 40,
                             child: Center(
                               child: Icon(Icons.remove_rounded, size: 24, color: Color(0xFF333333)),
                             ),
@@ -1432,22 +1554,27 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen>
                     ],
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
 
-                // 5. GPS Re-Center Button
+                // 6. GPS Re-Center Button (Works for BOTH Map & Live Street View)
                 _buildFloatingCircleButton(
                   icon: Icons.my_location_rounded,
                   onTap: () {
-                    _mapController?.animateCamera(
-                      CameraUpdate.newCameraPosition(
-                        CameraPosition(
-                          target: _currentLatLng,
-                          zoom: _is3D ? 18.5 : 17.5,
-                          tilt: _is3D ? 65.0 : 0.0,
-                          bearing: _currentBearing,
+                    if (_isStreetView) {
+                      _lastStreetViewLatLng = _currentLatLng;
+                      _streetViewController?.updatePosition(_currentLatLng, radius: 200);
+                    } else {
+                      _mapController?.animateCamera(
+                        CameraUpdate.newCameraPosition(
+                          CameraPosition(
+                            target: _currentLatLng,
+                            zoom: _is3D ? 18.5 : 17.5,
+                            tilt: _is3D ? 65.0 : 0.0,
+                            bearing: _currentBearing,
+                          ),
                         ),
-                      ),
-                    );
+                      );
+                    }
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Re-centered on your GPS position'),
