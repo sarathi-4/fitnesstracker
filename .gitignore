@@ -51,3 +51,5 @@ app.*.map.json
 **/local.properties
 .env
 .env.*
+*.apk
+*.aab

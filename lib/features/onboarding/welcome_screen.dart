@@ -221,27 +221,16 @@ class WelcomeScreen extends StatelessWidget {
             ),
           ],
         ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 15.5,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.2,
-              ),
+        child: Center(
+          child: Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
             ),
-            const Positioned(
-              right: 20,
-              child: Icon(
-                Icons.arrow_forward_rounded,
-                color: Colors.white,
-                size: 24,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
